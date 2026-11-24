@@ -1,15 +1,15 @@
 <div align="center">
 
-# ⚡ claude-autonomous-team
+# ⚡ Github & Claude Autonomous Team
 
 **Turn a one-paragraph brief into a private GitHub repo — architected, built, QA-gated, and shipped phase by phase.**
 
 [![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet?style=for-the-badge&logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
-[![Stack Agnostic](https://img.shields.io/badge/Stacks-8_Ecosystems-00C7B7?style=for-the-badge)](#supported-stacks--universal-ci)
-[![QA Gate](https://img.shields.io/badge/QA_Gate-Read--Only-FF4B4B?style=for-the-badge)](#guardrails--failure-handling)
+[![Stack Agnostic](https://img.shields.io/badge/Stacks-8_Ecosystems-00C7B7?style=for-the-badge)](#universal-ci)
+[![QA Gate](https://img.shields.io/badge/QA_Gate-Read--Only-FF4B4B?style=for-the-badge)](#guardrails)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-[Why This Exists](#-why-this-exists) • [Workflow](#-workflow-overview) • [Quick Start](#-quick-start) • [Walkthrough](#-end-to-end-walkthrough) • [Universal CI](#-supported-stacks--universal-ci) • [Guardrails](#-guardrails--failure-handling)
+[Why This Exists](#why-this-exists) • [Workflow](#workflow-overview) • [Quick Start](#quick-start) • [Walkthrough](#end-to-end-walkthrough) • [Universal CI](#universal-ci) • [Guardrails](#guardrails)
 
 ---
 
@@ -19,6 +19,7 @@
 
 ---
 
+<a id="why-this-exists"></a>
 ## 🧠 Why This Exists
 
 Long autonomous coding sessions almost always fail in four predictable ways. `autonomous-team` replaces hope with mechanical guardrails:
@@ -32,6 +33,7 @@ Long autonomous coding sessions almost always fail in four predictable ways. `au
 
 ---
 
+<a id="workflow-overview"></a>
 ## 🔄 Workflow Overview
 
 ```mermaid
@@ -59,6 +61,7 @@ flowchart TD
 
 ---
 
+<a id="quick-start"></a>
 ## ⚙️ Quick Start
 
 ### Prerequisites
@@ -96,6 +99,7 @@ gh repo create claude-autonomous-team --private --source=. --remote=origin --pus
 
 ---
 
+<a id="end-to-end-walkthrough"></a>
 ## 🚀 End-to-End Walkthrough
 
 ### 1. Bootstrap a New Project (Phase 0)
@@ -155,6 +159,7 @@ Once all issues in the phase close, `release-manager` runs a full multi-surface 
 
 ---
 
+<a id="universal-ci"></a>
 ## 🌐 Supported Stacks & Universal CI
 
 The bundled `.github/workflows/ci.yml` inspects your repo up to **3 levels deep** and triggers CI jobs *only* for stacks actually present. Polyglot monorepos run detected stacks in parallel.
@@ -163,18 +168,19 @@ The bundled `.github/workflows/ci.yml` inspects your repo up to **3 levels deep*
 | :--- | :--- | :--- | :--- |
 | **Node / TypeScript** | `package.json` | `lint`, `typecheck`, `build`, `test` (`pnpm`/`yarn`/`npm`) | Root workspaces & multi-package |
 | **Python** | `pyproject.toml`, `requirements.txt` | `ruff check .`, `pytest` | Per-directory isolated temp venvs |
-| **Go** | `go.mod` | `gofmt -l`, `go vet`, `go build`, `go test -race` | Per-module loop |
-| **Rust** | `Cargo.toml` | `cargo fmt --check`, `clippy -D warnings`, `test --all` | Workspaces & independent crates |
-| **Flutter / Dart** | `pubspec.yaml` | `flutter analyze && flutter test` (or `dart`) | Per-package loop |
+| **Go** | `go.mod` | `gofmt -l`, `go vet ./...`, `go build ./...`, `go test -race ./...` | Per-module loop |
+| **Rust** | `Cargo.toml` | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --all` | Workspaces & independent crates |
+| **Flutter / Dart** | `pubspec.yaml` | `flutter analyze && flutter test` (or `dart` for pure Dart) | Per-package loop |
 | **Swift** | `Package.swift` | `swift build && swift test` | Per-package loop (`ubuntu-latest`*) |
 | **.NET / C#** | `*.sln`, `*.slnx`, `*.csproj` | `dotnet restore`, `build`, `test` | Solution-first, project fallback |
-| **Gradle / JVM** | `build.gradle(.kts)` | `./gradlew check` (or `gradle check`) | Per-project loop |
+| **Gradle / Kotlin / Java** | `build.gradle`, `build.gradle.kts` | `./gradlew check` (or `gradle check` fallback) | Per-project loop |
 
 > [!TIP]
 > **Swift & Phase 0:** Swift targets run on `ubuntu-latest` by default; switch `swift-ci` to `macos-latest` for UIKit/SwiftUI apps. On **Phase 0** (docs + CI only), `detect-stacks` returns `false` across the board so the workflow passes green with zero false failures.
 
 ---
 
+<a id="guardrails"></a>
 ## 🛡️ Guardrails & Failure Handling
 
 - **🔒 Read-Only QA Gate:** `agents/qa-engineer.md` sets `disallowedTools: Write, Edit`. It physically cannot weaken tests or patch code to force a green build.
