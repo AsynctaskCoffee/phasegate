@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Github & Claude Autonomous Team
+# ⚡ phasegate - Github & Claude Autonomous Team
 
 **Turn a one-paragraph brief into a private GitHub repo — architected, built, QA-gated, and shipped phase by phase.**
 
