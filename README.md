@@ -1,79 +1,83 @@
-# claude-autonomous-team
+<div align="center">
 
-A Claude Code plugin (`autonomous-team`) that turns a short project brief into a private GitHub repository and executes it phase by phase with GitHub Issues, a read-only QA gate, persistent engineering notes, and multi-language CI.
+# ⚡ claude-autonomous-team
 
-It is stack-agnostic: instead of hardcoding one language or a fixed phase template, it picks the stack per surface (backend, web, mobile, CLI, worker) based on the brief and scales the phase count to match the actual scope.
+**Turn a one-paragraph brief into a private GitHub repo — architected, built, QA-gated, and shipped phase by phase.**
 
-## Why This Exists
+[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet?style=for-the-badge&logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
+[![Stack Agnostic](https://img.shields.io/badge/Stacks-8_Ecosystems-00C7B7?style=for-the-badge)](#supported-stacks--universal-ci)
+[![QA Gate](https://img.shields.io/badge/QA_Gate-Read--Only-FF4B4B?style=for-the-badge)](#guardrails--failure-handling)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-Running long coding sessions with an agent usually breaks down in four predictable ways:
-1. **Context drift** — Decisions made three tasks ago get forgotten after context compaction or across sessions.
-2. **Premature completion** — Tasks get marked done without running tests, or tests get silently skipped to make a build green.
-3. **Contract mismatches** — Frontend, mobile, and backend surfaces diverge because shared schemas were never locked first.
-4. **Messy git history** — Work lands as one massive unverified dump instead of clean, reproducible phase commits.
+[Why This Exists](#-why-this-exists) • [Workflow](#-workflow-overview) • [Quick Start](#-quick-start) • [Walkthrough](#-end-to-end-walkthrough) • [Universal CI](#-supported-stacks--universal-ci) • [Guardrails](#-guardrails--failure-handling)
 
-This plugin enforces a small set of mechanical guardrails to prevent all four:
-- Every task lives as a **GitHub Issue** moving strictly through `status:todo` -> `status:in-progress` -> `status:test` -> `status:done`.
-- Only **one issue** can be active at a time (`WIP = 1`).
-- Multi-surface projects lock shared contracts in **Phase 1** before feature code starts.
-- A read-only `qa-engineer` subagent (`Write` and `Edit` disabled) runs lint, build, and tests and audits diffs for skipped tests before any issue closes.
-- Every closed issue appends a structured entry to `DONE_LOG.md` and posts the same note to the GitHub Issue, while `STATUS.md` tracks live progress.
-- Every finished phase runs a full multi-surface regression, commits with Conventional Commits, and pushes to `origin main`.
+---
 
-## Workflow Overview
+</div>
 
-```text
-/autonomous-team:start-project <name> <brief>
-   │
-   ├─► Pre-flight checks (gh auth status, git)
-   ├─► architect subagent: stack selection + dynamic phase plan
-   ├─► bootstrap-github.sh: private repo + status/surface/phase labels
-   ├─► Writes CLAUDE.md, SPEC.md, ARCHITECTURE.md, PLAN.md, DONE_LOG.md, STATUS.md
-   ├─► Installs .github/workflows/ci.yml (8-stack universal CI)
-   ├─► Opens GitHub Issues for every task in Phases 1..N
-   └─► Commits & pushes Phase 0
+`autonomous-team` is a **stack-agnostic Claude Code plugin** that transforms a short project brief into a production-grade engineering workflow. Instead of hardcoding one language or a rigid template, it selects the optimal stack per surface (**backend, web, mobile, CLI, worker**), scales the phase count to your actual scope, and executes with **GitHub Issues**, a **read-only QA gate**, **persistent engineering logs**, and **multi-language CI**.
 
-/autonomous-team:run-next-phase [phase-number]
-   │
-   ├─► Reads CLAUDE.md, SPEC.md, ARCHITECTURE.md, PLAN.md, DONE_LOG.md, STATUS.md
-   ├─► For each open issue in target phase (WIP = 1):
-   │      status:todo
-   │         │
-   │         ▼
-   │      status:in-progress  ──► builder subagent (code + tests)
-   │         │
-   │         ▼
-   │      status:test         ──► qa-engineer subagent (read-only gate)
-   │         │   ▲
-   │         │   └── fail (retry up to 3x, then status:blocked & halt)
-   │         ▼
-   │      status:done         ──► append DONE_LOG.md + comment & close issue
-   │
-   └─► release-manager subagent: full regression + secret scan + commit + push + CI check
+---
+
+## 🧠 Why This Exists
+
+Long autonomous coding sessions almost always fail in four predictable ways. `autonomous-team` replaces hope with mechanical guardrails:
+
+| 💥 The Failure Mode | 🛡️ The Mechanical Guardrail |
+| :--- | :--- |
+| **Context Drift** — Decisions vanish across sessions or after compaction. | Every closed issue appends a structured entry to `DONE_LOG.md` & the GitHub Issue, while `STATUS.md` tracks live state. |
+| **Premature Completion** — Tasks close without tests, or tests get silently skipped. | A **read-only `qa-engineer`** (`Write`/`Edit` disabled) runs lint, build, and tests, and rejects diffs containing skip/ignore patterns. |
+| **Contract Mismatches** — Frontend, mobile, and backend drift apart. | Multi-surface projects lock shared schemas and contracts in **Phase 1** before feature code begins. |
+| **Messy Git History** — One massive, unverified dump of changes. | Strict **`WIP = 1`** issue flow. Each finished phase runs full regression, commits with Conventional Commits, and pushes to `origin main`. |
+
+---
+
+## 🔄 Workflow Overview
+
+```mermaid
+flowchart TD
+    classDef cmd fill:#1e1e2e,stroke:#89b4fa,stroke-width:2px,color:#cdd6f4
+    classDef agent fill:#181825,stroke:#cba6f7,stroke-width:1.5px,color:#cdd6f4
+    classDef state fill:#11111b,stroke:#a6e3a1,stroke-width:1.5px,color:#a6e3a1
+    classDef qa fill:#11111b,stroke:#f38ba8,stroke-width:2px,color:#f38ba8
+
+    A["🚀 /autonomous-team:start-project &lt;name&gt; &lt;brief&gt;"]:::cmd --> B["Pre-flight checks (gh auth, git)"]
+    B --> C["🧠 architect subagent<br/>Stack selection + dynamic phase plan"]:::agent
+    C --> D["bootstrap-github.sh<br/>Private repo + labels + 8-stack CI"]
+    D --> E["Writes CLAUDE, SPEC, ARCHITECTURE, PLAN, DONE_LOG, STATUS"]
+    E --> F["Opens GitHub Issues (Phase 1..N) &amp; Pushes Phase 0"]
+
+    F -.-> G["⚡ /autonomous-team:run-next-phase [phase]"]:::cmd
+    G --> H["status:todo"]:::state
+    H --> I["status:in-progress<br/>🔨 builder subagent (code + tests)"]:::agent
+    I --> J["status:test<br/>🔍 qa-engineer (read-only gate)"]:::qa
+    J -- "❌ Fail (max 3x, then status:blocked)" --> I
+    J -- "✅ Pass" --> K["status:done<br/>Append DONE_LOG.md + close issue"]:::state
+    K -- "Next open issue (WIP = 1)" --> H
+    K -- "All phase issues closed" --> L["🚢 release-manager<br/>Full regression + secret scan + commit + push + CI"]:::agent
 ```
 
-## Prerequisites
+---
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-- `git`
-- [GitHub CLI (`gh`)](https://cli.github.com/) authenticated with repo write permissions:
+## ⚙️ Quick Start
 
-```bash
-gh auth login
-gh auth status
-```
-
-## Installation & Setup
+### Prerequisites
+- **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** CLI
+- **`git`**
+- **[GitHub CLI (`gh`)](https://cli.github.com/)** authenticated with `repo` write permissions:
+  ```bash
+  gh auth login && gh auth status
+  ```
 
 ### Option 1: Load Directly From a Local Folder
 
 ```bash
 chmod +x claude-autonomous-team/scripts/bootstrap-github.sh
 
-# Validate the plugin manifest before loading
+# Validate the plugin manifest strictly before loading
 claude plugin validate --strict ./claude-autonomous-team
 
-# Start Claude Code with the plugin loaded
+# Launch Claude Code with the plugin active
 claude --plugin-dir ./claude-autonomous-team
 ```
 
@@ -82,85 +86,106 @@ claude --plugin-dir ./claude-autonomous-team
 ```bash
 cd claude-autonomous-team
 chmod +x scripts/bootstrap-github.sh
-git init -b main
-git add -A
+git init -b main && git add -A
 git commit -m "feat: initial autonomous-team plugin"
 gh repo create claude-autonomous-team --private --source=. --remote=origin --push
 ```
 
-> **Note on command namespacing:** The plugin manifest sets `"name": "autonomous-team"` so `claude plugin validate --strict` passes without triggering Anthropic's reserved `claude-` prefix check. Claude Code namespaces all plugin commands under that name, so commands are invoked as `/autonomous-team:start-project` and `/autonomous-team:run-next-phase`.
+> [!NOTE]
+> **Command Namespacing:** The manifest sets `"name": "autonomous-team"` so `claude plugin validate --strict` passes Anthropic's reserved `claude-` prefix check. All commands are invoked under that namespace: `/autonomous-team:start-project` and `/autonomous-team:run-next-phase`.
 
-## End-to-End Walkthrough
+---
+
+## 🚀 End-to-End Walkthrough
 
 ### 1. Bootstrap a New Project (Phase 0)
 
-Run Claude Code from the directory where you want your new repository folder created:
+Start Claude Code from the parent directory where you want your new repository created:
 
 ```bash
 claude --plugin-dir /path/to/claude-autonomous-team
 ```
 
-Inside Claude Code:
+Run inside Claude Code:
 
 ```text
 /autonomous-team:start-project invoice-portal Multi-tenant invoicing web app with item-based billing, PDF export, and role-based approval limits. Use .NET 9 for the API and React + TypeScript for the frontend.
 ```
 
-What gets created on disk and on GitHub:
+**What happens automatically:**
+- Creates a **private** GitHub repo `invoice-portal` under your `gh` account.
+- Provisions `status:*`, `surface:*`, and `phase:0..N` labels.
+- Opens GitHub Issues for every task across Phases `1..N` with acceptance criteria and test requirements, linking issue numbers back into `PLAN.md`.
+- Scaffolds the repo and pushes **Phase 0** to `origin main`:
 
 ```text
 invoice-portal/
-├── .github/
-│   └── workflows/
-│       └── ci.yml
+├── .github/workflows/ci.yml   # 8-stack auto-detecting CI
 ├── .gitignore
-├── ARCHITECTURE.md
-├── CLAUDE.md
-├── DONE_LOG.md
-├── PLAN.md
-├── SPEC.md
-└── STATUS.md
+├── ARCHITECTURE.md            # Stack decisions & shared contracts
+├── CLAUDE.md                  # Core operating rules
+├── DONE_LOG.md                # Append-only engineering log
+├── PLAN.md                    # Dynamic phases linked to GitHub Issues
+├── SPEC.md                    # Product specification
+└── STATUS.md                  # Live execution state
 ```
 
-- A new **private** GitHub repo `invoice-portal` is created under your authenticated `gh` account.
-- Labels (`status:*`, `surface:*`, `phase:0..N`) are provisioned automatically.
-- Every task from Phase 1 to Phase N is opened as a GitHub Issue with acceptance criteria and test requirements, and issue numbers are written back into `PLAN.md`.
-- Phase 0 is committed and pushed to `origin main`.
-
 ### 2. Execute Phases One by One
-
-Move into the generated repository and start Claude Code with the plugin:
 
 ```bash
 cd invoice-portal
 claude --plugin-dir /path/to/claude-autonomous-team
 ```
 
-Run the next pending phase:
+Run the next pending phase (or target a specific phase like `/autonomous-team:run-next-phase 2`):
 
 ```text
 /autonomous-team:run-next-phase
 ```
 
-Or run a specific phase explicitly:
+Every state transition prints a live single-line telemetry banner in your terminal and syncs `STATUS.md`:
 
 ```text
-/autonomous-team:run-next-phase 2
+[PHASE 1/5 | ISSUE #1 | ROLE: builder     | STATE: status:in-progress | TESTS: pending]
+[PHASE 1/5 | ISSUE #1 | ROLE: qa-engineer | STATE: status:test        | TESTS: running]
+[PHASE 1/5 | ISSUE #1 | ROLE: qa-engineer | STATE: status:done        | TESTS: 18/18 PASS]
 ```
 
-During execution, each transition prints a single-line status banner in the terminal and updates `STATUS.md`:
+Once all issues in the phase close, `release-manager` runs a full multi-surface regression, scans for leaked secrets or stray files, commits (`feat(phase-1): ...`), pushes to `origin main`, and verifies GitHub Actions. Repeat until every phase is `COMPLETED`.
 
-```text
-[PHASE 1/5 | ISSUE #1 | ROLE: builder | STATE: status:in-progress | TESTS: pending]
-[PHASE 1/5 | ISSUE #1 | ROLE: qa-engineer | STATE: status:test | TESTS: running]
-[PHASE 1/5 | ISSUE #1 | ROLE: qa-engineer | STATE: status:done | TESTS: 18/18 PASS]
-```
+---
 
-Once every issue in the phase is closed, `release-manager` runs a full multi-surface regression, checks for leaked secrets or stray files, commits (`feat(phase-1): ...`), pushes to `origin main`, and verifies the GitHub Actions run.
+## 🌐 Supported Stacks & Universal CI
 
-Repeat `/autonomous-team:run-next-phase` until all phases are marked `COMPLETED`.
+The bundled `.github/workflows/ci.yml` inspects your repo up to **3 levels deep** and triggers CI jobs *only* for stacks actually present. Polyglot monorepos run detected stacks in parallel.
 
-## Repository Structure
+| Ecosystem | Detection Signal | Checks Executed | Monorepo Support |
+| :--- | :--- | :--- | :--- |
+| **Node / TypeScript** | `package.json` | `lint`, `typecheck`, `build`, `test` (`pnpm`/`yarn`/`npm`) | Root workspaces & multi-package |
+| **Python** | `pyproject.toml`, `requirements.txt` | `ruff check .`, `pytest` | Per-directory isolated temp venvs |
+| **Go** | `go.mod` | `gofmt -l`, `go vet`, `go build`, `go test -race` | Per-module loop |
+| **Rust** | `Cargo.toml` | `cargo fmt --check`, `clippy -D warnings`, `test --all` | Workspaces & independent crates |
+| **Flutter / Dart** | `pubspec.yaml` | `flutter analyze && flutter test` (or `dart`) | Per-package loop |
+| **Swift** | `Package.swift` | `swift build && swift test` | Per-package loop (`ubuntu-latest`*) |
+| **.NET / C#** | `*.sln`, `*.slnx`, `*.csproj` | `dotnet restore`, `build`, `test` | Solution-first, project fallback |
+| **Gradle / JVM** | `build.gradle(.kts)` | `./gradlew check` (or `gradle check`) | Per-project loop |
+
+> [!TIP]
+> **Swift & Phase 0:** Swift targets run on `ubuntu-latest` by default; switch `swift-ci` to `macos-latest` for UIKit/SwiftUI apps. On **Phase 0** (docs + CI only), `detect-stacks` returns `false` across the board so the workflow passes green with zero false failures.
+
+---
+
+## 🛡️ Guardrails & Failure Handling
+
+- **🔒 Read-Only QA Gate:** `agents/qa-engineer.md` sets `disallowedTools: Write, Edit`. It physically cannot weaken tests or patch code to force a green build.
+- **🚫 Zero-Bypass Diff Audit:** Diffs containing `.skip(`, `xit(`, `#[ignore]`, `@pytest.mark.skip`, `// nolint`, `# noqa`, `@ts-ignore`, or `eslint-disable` fail QA immediately.
+- **⚡ Blocker Circuit Breaker:** If an issue fails QA **3 consecutive times** for the same root cause, execution halts, applies `status:blocked`, logs all 3 attempts on the GitHub Issue and `STATUS.md`, and hands control back to you.
+- **♻️ Crash-Proof Recovery:** Because state lives in GitHub Issues, `STATUS.md`, and `DONE_LOG.md`, running `/autonomous-team:run-next-phase` in a brand-new session automatically resumes the active `status:in-progress` or `status:test` issue without duplicating work.
+
+---
+
+<details>
+<summary><b>📂 Repository Structure</b></summary>
 
 ```text
 claude-autonomous-team/
@@ -188,45 +213,31 @@ claude-autonomous-team/
 └── README.md
 ```
 
-## Supported Stacks & Universal CI
+</details>
 
-The bundled `.github/workflows/ci.yml` inspects the repository up to 3 levels deep and runs CI jobs only for stacks actually present. Monorepos combining multiple stacks run each detected job in parallel.
+<details>
+<summary><b>🎛️ Customization</b></summary>
 
-| Ecosystem | Detection Signal | Checks Executed | Monorepo Support |
-|-----------|------------------|-----------------|------------------|
-| **Node / TypeScript** | `package.json` | `lint`, `typecheck`, `build`, `test` (`pnpm` / `yarn` / `npm`) | Root workspaces & multi-package folders |
-| **Python** | `pyproject.toml`, `requirements.txt` | `ruff check .`, `pytest` (isolated temp venv per surface) | Per-directory isolated virtualenvs |
-| **Go** | `go.mod` | `gofmt -l`, `go vet ./...`, `go build ./...`, `go test -race ./...` | Per-module loop |
-| **Rust** | `Cargo.toml` | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --all` | Root workspace & independent crates |
-| **Flutter / Dart** | `pubspec.yaml` | `flutter analyze && flutter test` (or `dart` for pure Dart) | Per-package loop |
-| **Swift** | `Package.swift` | `swift build && swift test` | Per-package loop (Linux runner*) |
-| **.NET / C#** | `*.sln`, `*.slnx`, `*.csproj` | `dotnet restore`, `build`, `test` | Solution-first, project fallback |
-| **Gradle / Kotlin / Java** | `build.gradle`, `build.gradle.kts` | `./gradlew check` (or `gradle check` fallback) | Per-project loop |
+- **Tune subagent models or budgets:** Edit `model` and `maxTurns` in `agents/*.md` frontmatter (e.g., bump `architect.md` from `sonnet` to `opus` for complex systems).
+- **Add another CI ecosystem:** Add a detection output in `detect-stacks` and a matching job in `templates/ci-universal.yml`.
+- **Change repo visibility or default branch:** Edit `scripts/bootstrap-github.sh` (`--private` → `--public`, `-b main` → your branch).
 
-\* Swift packages targeting Linux/server/CLI run on `ubuntu-latest`. For iOS/macOS-only UIKit or SwiftUI targets, switch `swift-ci`'s `runs-on` in `.github/workflows/ci.yml` to `macos-latest`.
+</details>
 
-On Phase 0 (documentation and CI only), `detect-stacks` returns `false` for all stacks and the workflow completes green without false failures.
+<details>
+<summary><b>🔧 Troubleshooting</b></summary>
 
-## Guardrails & Failure Handling
+- **`gh auth status` fails during `/autonomous-team:start-project`:** Run `gh auth login` and ensure your token includes the `repo` scope.
+- **Slash commands don't appear as `/start-project`:** Claude Code namespaces plugin commands by manifest `name`. Use `/autonomous-team:start-project` and `/autonomous-team:run-next-phase`.
+- **`claude plugin validate` reports an error:** Run `claude plugin validate --strict ./claude-autonomous-team` to pinpoint invalid JSON keys or frontmatter syntax.
+- **Resuming after manually fixing a `status:blocked` issue:** Remove the `status:blocked` label on GitHub, restore `status:todo` (or `status:in-progress`), and re-run `/autonomous-team:run-next-phase`.
 
-- **Read-Only QA Gate:** `agents/qa-engineer.md` sets `disallowedTools: Write, Edit`. It cannot silently weaken tests or tweak code to force a pass.
-- **No Bypass Patterns:** Diffs containing `.skip(`, `xit(`, `#[ignore]`, `@pytest.mark.skip`, `// nolint`, `# noqa`, `@ts-ignore`, or `eslint-disable` automatically fail QA.
-- **Blocker Circuit Breaker:** If an issue fails QA 3 times in a row for the same root cause, the loop halts, applies `status:blocked`, records the error and all 3 attempts on the GitHub Issue and `STATUS.md`, and hands control back to you.
-- **Interrupted Session Recovery:** Because state lives in GitHub Issues, `STATUS.md`, and `DONE_LOG.md`, running `/autonomous-team:run-next-phase` in a fresh session picks up the currently open `status:in-progress` or `status:test` issue automatically instead of duplicating work.
+</details>
 
-## Customization
+---
 
-- **Adjust subagent models or turn budgets:** Edit the frontmatter (`model`, `maxTurns`) in `agents/*.md`. For heavier architectural work, you can switch `architect.md` from `sonnet` to `opus`.
-- **Add another language to CI:** Add a detection output in `detect-stacks` and a matching job in `templates/ci-universal.yml`.
-- **Use a different default branch or visibility:** Edit `scripts/bootstrap-github.sh` (`--private` -> `--public`, `-b main` -> your preferred branch name).
+<div align="center">
 
-## Troubleshooting
+Released under the [MIT License](LICENSE).
 
-- **`gh auth status` fails during `/autonomous-team:start-project`:** Run `gh auth login` in your shell and verify token scopes include `repo`.
-- **Slash commands don't appear as `/start-project`:** Claude Code prefixes all plugin commands with the manifest `name`. Use `/autonomous-team:start-project` and `/autonomous-team:run-next-phase`.
-- **`claude plugin validate` reports an issue after editing files:** Run `claude plugin validate --strict ./claude-autonomous-team` to pinpoint invalid JSON keys or frontmatter syntax errors before reloading.
-- **Need to resume after fixing a `status:blocked` issue manually:** Remove the `status:blocked` label on GitHub, restore `status:todo` (or `status:in-progress`), and run `/autonomous-team:run-next-phase`.
-
-## License
-
-MIT — see `LICENSE`.
+</div>
