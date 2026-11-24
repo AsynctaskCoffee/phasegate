@@ -1,0 +1,338 @@
+name: Universal CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+jobs:
+  detect-stacks:
+    runs-on: ubuntu-latest
+    outputs:
+      node: ${{ steps.detect.outputs.node }}
+      python: ${{ steps.detect.outputs.python }}
+      go: ${{ steps.detect.outputs.go }}
+      rust: ${{ steps.detect.outputs.rust }}
+      flutter: ${{ steps.detect.outputs.flutter }}
+      swift: ${{ steps.detect.outputs.swift }}
+      dotnet: ${{ steps.detect.outputs.dotnet }}
+      gradle: ${{ steps.detect.outputs.gradle }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          has_match() {
+            if "$@" | grep -q .; then
+              echo "true"
+            else
+              echo "false"
+            fi
+          }
+          echo "node=$(has_match find . -maxdepth 3 -name 'package.json' -not -path '*/node_modules/*')" >> "$GITHUB_OUTPUT"
+          echo "python=$(has_match find . -maxdepth 3 \( -name 'pyproject.toml' -o -name 'requirements.txt' \) -not -path '*/.venv/*' -not -path '*/venv/*')" >> "$GITHUB_OUTPUT"
+          echo "go=$(has_match find . -maxdepth 3 -name 'go.mod')" >> "$GITHUB_OUTPUT"
+          echo "rust=$(has_match find . -maxdepth 3 -name 'Cargo.toml' -not -path '*/target/*')" >> "$GITHUB_OUTPUT"
+          echo "flutter=$(has_match find . -maxdepth 3 -name 'pubspec.yaml')" >> "$GITHUB_OUTPUT"
+          echo "swift=$(has_match find . -maxdepth 3 -name 'Package.swift')" >> "$GITHUB_OUTPUT"
+          echo "dotnet=$(has_match find . -maxdepth 3 \( -name '*.sln' -o -name '*.slnx' -o -name '*.csproj' \))" >> "$GITHUB_OUTPUT"
+          echo "gradle=$(has_match find . -maxdepth 3 \( -name 'build.gradle' -o -name 'build.gradle.kts' \))" >> "$GITHUB_OUTPUT"
+
+  node-ci:
+    needs: detect-stacks
+    if: needs.detect-stacks.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install, Lint, Typecheck, Build, and Test (Node / TypeScript)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          has_script() {
+            node -e "const p = require('./package.json'); process.exit(p.scripts && p.scripts[process.argv[1]] ? 0 : 1)" "$1"
+          }
+
+          is_root_workspace() {
+            [ -f "pnpm-workspace.yaml" ] || (
+              [ -f "package.json" ] && node -e "const p = require('./package.json'); process.exit(p.workspaces ? 0 : 1)"
+            )
+          }
+
+          run_pkg_checks() {
+            local pm="$1"
+            if has_script lint; then "$pm" run lint; fi
+            if has_script typecheck; then "$pm" run typecheck; fi
+            if has_script build; then "$pm" run build; fi
+            if has_script test; then "$pm" test; fi
+          }
+
+          if is_root_workspace; then
+            echo "=== Node Workspace Root ==="
+            if [ -f "pnpm-lock.yaml" ] || [ -f "pnpm-workspace.yaml" ]; then
+              corepack enable
+              if [ -f "pnpm-lock.yaml" ]; then pnpm install --frozen-lockfile; else pnpm install; fi
+              if has_script lint; then pnpm run lint; else pnpm -r --if-present run lint; fi
+              if has_script typecheck; then pnpm run typecheck; else pnpm -r --if-present run typecheck; fi
+              if has_script build; then pnpm run build; else pnpm -r --if-present run build; fi
+              if has_script test; then pnpm test; else pnpm -r --if-present test; fi
+            elif [ -f "yarn.lock" ]; then
+              corepack enable
+              yarn install --frozen-lockfile
+              run_pkg_checks yarn
+            else
+              if [ -f "package-lock.json" ]; then npm ci; else npm install; fi
+              if has_script lint; then npm run lint; else npm run lint --workspaces --if-present; fi
+              if has_script typecheck; then npm run typecheck; else npm run typecheck --workspaces --if-present; fi
+              if has_script build; then npm run build; else npm run build --workspaces --if-present; fi
+              if has_script test; then npm test; else npm test --workspaces --if-present; fi
+            fi
+          else
+            while IFS= read -r pkg; do
+              dir=$(dirname "$pkg")
+              echo "=== Node Surface: $dir ==="
+              (
+                cd "$dir"
+                if [ -f "pnpm-lock.yaml" ]; then
+                  corepack enable
+                  pnpm install --frozen-lockfile
+                  run_pkg_checks pnpm
+                elif [ -f "yarn.lock" ]; then
+                  corepack enable
+                  yarn install --frozen-lockfile
+                  run_pkg_checks yarn
+                else
+                  if [ -f "package-lock.json" ]; then npm ci; else npm install; fi
+                  run_pkg_checks npm
+                fi
+              )
+            done < <(find . -maxdepth 3 -name 'package.json' -not -path '*/node_modules/*' | sort)
+          fi
+
+  python-ci:
+    needs: detect-stacks
+    if: needs.detect-stacks.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install, Lint, and Test (Python)
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r dir; do
+            echo "=== Python Surface: $dir ==="
+            venv_dir=$(mktemp -d)
+            python -m venv "$venv_dir"
+            (
+              # shellcheck disable=SC1091
+              source "${venv_dir}/bin/activate"
+              cd "$dir"
+              python -m pip install --upgrade pip
+              pip install ruff pytest
+              if [ -f "pyproject.toml" ]; then
+                pip install -e ".[dev]" 2>/dev/null || pip install -e . 2>/dev/null || true
+              fi
+              if [ -f "requirements-dev.txt" ]; then
+                pip install -r requirements-dev.txt
+              fi
+              if [ -f "requirements.txt" ]; then
+                pip install -r requirements.txt
+              fi
+              ruff check .
+              pytest
+            )
+            rm -rf "$venv_dir"
+          done < <(find . -maxdepth 3 \( -name 'pyproject.toml' -o -name 'requirements.txt' \) -not -path '*/.venv/*' -not -path '*/venv/*' -exec dirname {} \; | sort -u)
+
+  go-ci:
+    needs: detect-stacks
+    if: needs.detect-stacks.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Format, Vet, Build, and Test (Go)
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r mod; do
+            dir=$(dirname "$mod")
+            echo "=== Go Surface: $dir ==="
+            (
+              cd "$dir"
+              unformatted=$(gofmt -l .)
+              if [ -n "$unformatted" ]; then
+                echo "Unformatted Go files:"
+                echo "$unformatted"
+                exit 1
+              fi
+              go vet ./...
+              go build ./...
+              go test -race -v ./...
+            )
+          done < <(find . -maxdepth 3 -name 'go.mod' | sort)
+
+  rust-ci:
+    needs: detect-stacks
+    if: needs.detect-stacks.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Format, Clippy, Build, and Test (Rust)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "Cargo.toml" ]; then
+            cargo fmt --all -- --check
+            cargo clippy --all-targets -- -D warnings
+            cargo test --all
+          else
+            checked_roots=()
+            while IFS= read -r manifest; do
+              dir=$(dirname "$manifest")
+              skip=false
+              for root in "${checked_roots[@]:-}"; do
+                if [[ -n "$root" && "$dir" == "$root/"* ]]; then
+                  skip=true
+                  break
+                fi
+              done
+              if [ "$skip" = true ]; then
+                continue
+              fi
+              checked_roots+=("$dir")
+              echo "=== Rust Surface: $dir ==="
+              (
+                cd "$dir"
+                cargo fmt --all -- --check
+                cargo clippy --all-targets -- -D warnings
+                cargo test --all
+              )
+            done < <(find . -maxdepth 3 -name 'Cargo.toml' -not -path '*/target/*' | sort)
+          fi
+
+  flutter-ci:
+    needs: detect-stacks
+    if: needs.detect-stacks.outputs.flutter == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+      - name: Analyze and Test (Flutter / Dart)
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r pub; do
+            dir=$(dirname "$pub")
+            echo "=== Flutter/Dart Surface: $dir ==="
+            (
+              cd "$dir"
+              if grep -Eq '^[[:space:]]*sdk:[[:space:]]*flutter' pubspec.yaml; then
+                flutter pub get
+                flutter analyze
+                flutter test
+              else
+                dart pub get
+                dart analyze
+                dart test
+              fi
+            )
+          done < <(find . -maxdepth 3 -name 'pubspec.yaml' | sort)
+
+  swift-ci:
+    needs: detect-stacks
+    if: needs.detect-stacks.outputs.swift == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.0'
+      - name: Build and Test (Swift)
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r pkg; do
+            dir=$(dirname "$pkg")
+            echo "=== Swift Surface: $dir ==="
+            (cd "$dir" && swift build && swift test)
+          done < <(find . -maxdepth 3 -name 'Package.swift' | sort)
+
+  dotnet-ci:
+    needs: detect-stacks
+    if: needs.detect-stacks.outputs.dotnet == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Restore, Build, and Test (.NET)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SLNS=$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.slnx' \) | sort)
+          if [ -n "$SLNS" ]; then
+            while IFS= read -r sln; do
+              echo "=== .NET Solution: $sln ==="
+              dotnet restore "$sln"
+              dotnet build "$sln" --no-restore
+              dotnet test "$sln" --no-build --verbosity normal
+            done <<< "$SLNS"
+          else
+            while IFS= read -r proj; do
+              echo "=== .NET Project: $proj ==="
+              dotnet restore "$proj"
+              dotnet build "$proj" --no-restore
+              if grep -qiE 'Microsoft\.NET\.Test\.Sdk|<IsTestProject>true</IsTestProject>' "$proj"; then
+                dotnet test "$proj" --no-build --verbosity normal
+              fi
+            done < <(find . -maxdepth 3 -name '*.csproj' | sort)
+          fi
+
+  gradle-ci:
+    needs: detect-stacks
+    if: needs.detect-stacks.outputs.gradle == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build and Test (Gradle / Kotlin / Java)
+        shell: bash
+        run: |
+          set -euo pipefail
+          WRAPPERS=$(find . -maxdepth 3 -name 'gradlew' | sort)
+          if [ -n "$WRAPPERS" ]; then
+            while IFS= read -r gw; do
+              dir=$(dirname "$gw")
+              echo "=== Gradle Surface (wrapper): $dir ==="
+              (cd "$dir" && chmod +x ./gradlew && ./gradlew check)
+            done <<< "$WRAPPERS"
+          else
+            while IFS= read -r dir; do
+              echo "=== Gradle Surface: $dir ==="
+              (cd "$dir" && gradle check)
+            done < <(find . -maxdepth 3 \( -name 'build.gradle' -o -name 'build.gradle.kts' \) -exec dirname {} \; | sort -u)
+          fi
