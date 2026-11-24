@@ -68,7 +68,6 @@ gh auth status
 ### Option 1: Load Directly From a Local Folder
 
 ```bash
-unzip claude-autonomous-team-v2.zip
 chmod +x claude-autonomous-team/scripts/bootstrap-github.sh
 
 # Validate the plugin manifest before loading
